@@ -25,7 +25,17 @@ fn main() {
     let st =parser.parse();
     let mut code_back = CodeGen::new(st);
     let code =code_back.gen_();
-    let _program = [
+  
+    vm.copy(&code);
+
+    vm.execute();
+    println!("{:?}",vm.reg);
+}
+
+
+
+/*
+*  let _program = [
         0xF9, 0xFF, 0x01, 0x01, // mov r1, -7
         0x01, 0x00, 0x02, 0x01, // mov r2, 1
         0x00, 0x01, 0x02, 0x02, // add r2,r1
@@ -49,8 +59,4 @@ fn main() {
       0x00, 0x00, 0x00, 0xFF    // HALT
     ];
 
-    vm.copy(&code);
-
-    vm.execute();
-    println!("{:?}",vm.reg);
-}
+*/
