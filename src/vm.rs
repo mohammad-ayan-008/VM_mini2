@@ -1,3 +1,5 @@
+use std::usize;
+
 const CARRY_FLAG: u8 = 0b0000_0010;
 const ZERO_FLAG: u8 = 0b0000_0001;
 const GRETER_FLAG:u8 = 0b0001_0000;
@@ -10,7 +12,7 @@ pub struct VM {
     flag: Flags,
     pc: u32,
     sp: u16,
-    reg: [i32; 8],
+    pub reg: [i32; 8],
     stack: [i32; 16],
     pub memory: [u8; MEMORY_SIZE],
 }
@@ -184,8 +186,57 @@ impl VM {
                     let n = inst2 as usize;
                     println!("{:?}",self.reg[n]);
                 }
+                //mul rn, imm
+                0x12=>{
+                    self.flag &= !(CARRY_FLAG | ZERO_FLAG);
+                    let n = inst2 as usize;
+                    let num = i16::from_be_bytes([inst3,inst4]) as i32;
+                    let res = self.reg[n].overflowing_mul(num); 
+                    self.reg[n] = res.0;
+                    if res.1 {self.flag |= CARRY_FLAG}
+                    if res.0 == 0{ self.flag |= ZERO_FLAG}
+
+                },
+                // Div rn ,rm
+                0x13 => {
+                    self.flag &= !ZERO_FLAG;
+                    let n = inst2 as usize;
+                    let m = inst3 as usize;
+                    if self.reg[m] == 0{
+                        println!("Divide by zero");
+                        return;
+                    }
+                    self.reg[n] /= self.reg[m];
+                    if self.reg[n] ==0 {self.flag |= ZERO_FLAG}
+                },
+                // JMPZ 
+                0x14=>{
+                    let n = u32::from_be_bytes([0x00,inst2,inst3,inst4]);
+                    if self.flag & ZERO_FLAG != 0{
+                        self.pc = n*4;
+                    }
+                },
+                // JMPNZ 
+                0x15=>{
+                    let n = u32::from_be_bytes([0x00,inst2,inst3,inst4]);
+                    if self.flag & ZERO_FLAG == 0{
+                        self.pc = n*4;
+                    }
+                },
+                //JUMP
+                0x16=>{
+                    let n = u32::from_be_bytes([0x00,inst2,inst3,inst4]);
+                    self.pc = n * 4;
+                },
+                // MOV rn,rm
+                0x17=>{
+                    let n = inst2 as usize;
+                    let m = inst3 as usize;
+                    self.reg[n] = self.reg[m];
+                }
                 _ => todo!(),
             }
+
         }
     }
 

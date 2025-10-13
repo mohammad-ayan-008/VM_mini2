@@ -1,9 +1,30 @@
 #![allow(dead_code)]
 
+use std::{fs::File, io::Read};
+
+use crate::{backend::CodeGen, parser::Parser, scanner::Scanner};
+
 mod scanner;
 mod vm;
+mod parser;
+mod backend;
+
 fn main() {
+
+    let mut file = File::open("asm1.mm").unwrap();
+    let mut buff = String::new();
+    
+    file.read_to_string(&mut buff).unwrap();
+    
     let mut vm = vm::VM::default();
+    
+    let mut scanner = Scanner::new(&buff);
+    let p = scanner.parse(); 
+    
+    let mut parser = Parser::new(p.to_vec());
+    let st =parser.parse();
+    let mut code_back = CodeGen::new(st);
+    let code =code_back.gen_();
     let _program = [
         0xF9, 0xFF, 0x01, 0x01, // mov r1, -7
         0x01, 0x00, 0x02, 0x01, // mov r2, 1
@@ -28,7 +49,8 @@ fn main() {
       0x00, 0x00, 0x00, 0xFF    // HALT
     ];
 
-    vm.copy(&loop_program);
+    vm.copy(&code);
 
     vm.execute();
+    println!("{:?}",vm.reg);
 }
