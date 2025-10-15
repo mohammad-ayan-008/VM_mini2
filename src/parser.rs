@@ -17,10 +17,15 @@ pub enum Stmt {
     Halt { token: Token },
     CMP { from_reg:Token , register_or_imm:Token},
     JMPG {to:Token},
+    JMPL {to:Token},
+    JMP {to:Token},
+    Call {to:Token},
+    RET,
     ADD { lhs_reg:Token ,right_reg_imm:Token},
     SUB { lhs_reg:Token ,right_reg_imm:Token},
     NOP,
-    Print {reg:Token}
+    Print {reg:Token},
+
 }
 
 pub struct Parser {
@@ -93,10 +98,21 @@ impl Parser {
             self.print_st();
         }else if self.match_(&[TokenType::LabelDef]){
             self.label_def();
+        }else if self.match_(&[TokenType::Call]){
+            self.call();
+        }else if self.match_(&[TokenType::Ret]) {
+            self.statements.push(Stmt::RET);
+        }else if self.match_(&[TokenType::JMPL]){
+            self.jump_stmt_2(); 
+        }else {
+            panic!("uknown token {:?}",self.peek());
         }
-
     }
 
+    pub fn call(&mut self){
+        let int_token = self.consume_2(&[TokenType::LabelCall]);
+        self.statements.push(Stmt::Call { to: int_token });
+    }
 
     pub fn label_def(&mut self){
         let token = self.previous();
@@ -113,6 +129,10 @@ impl Parser {
     pub fn jump_stmt(&mut self){
         let token = self.consume_2(&[TokenType::LabelCall]);
         self.statements.push(Stmt::JMPG { to: token });
+    }
+    pub fn jump_stmt_2(&mut self){
+        let token = self.consume_2(&[TokenType::LabelCall]);
+        self.statements.push(Stmt::JMPL { to: token });
     }
 
     pub fn compare_stmt(&mut self){

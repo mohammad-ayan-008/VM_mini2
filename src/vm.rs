@@ -54,6 +54,7 @@ impl VM {
         // little endian bytes for memory structure MSB at last and LSB first
         'lp: loop {
             let [inst1, inst2, inst3, inst4] = self.extract_u32().to_be_bytes();
+            // println!("{:?}",self.reg);
             //println!("i1 {inst1} i2 {inst2} i3 {inst3} i4 {inst4}");
             let op_code = inst1;
             match op_code {
@@ -131,25 +132,30 @@ impl VM {
 
                 //cmp rn rm
                 0x06 => {
+
                     self.flag &= !(ZERO_FLAG | GRETER_FLAG | LESSER_FLAG);
 
                     let n = inst2 as usize;
                     let m = inst3 as usize;
 
                     let res = self.reg[n].overflowing_sub(self.reg[m]).0;
-
+                    // println!("{:?}",res);
                     if res == 0 {
                         self.flag |= ZERO_FLAG;
                     }
                     if res > 0 {
                         self.flag |= GRETER_FLAG;
+                        // println!("G flag set");
                     } else {
                         self.flag |= LESSER_FLAG;
+                        // println!("L flag set");
                     }
                 }
                 // JMPG
                 0x07 => {
                     let n = u32::from_be_bytes([0x00, inst2, inst3, inst4]);
+
+
                     if (self.flag & GRETER_FLAG) != 0 {
                         self.pc = n * 4;
                     }
@@ -246,17 +252,28 @@ impl VM {
                     }
                     if res > 0 {
                         self.flag |= GRETER_FLAG;
+
                     } else {
                         self.flag |= LESSER_FLAG;
                     }
+                },
+                //call addr
+                0x19=>{
+                    let addr = u32::from_be_bytes([0x00,inst2,inst3,inst4]);
+                    self.push(self.pc as i32);
+                    self.pc = addr * 4;
+                },
+                //ret
+                0x20=>{
+                    self.pc = self.pop() as u32;
                 }
-
                 _ => todo!(),
             }
         }
     }
 
     pub fn copy(&mut self, program: &[u8]) {
+      
         self.memory[(self.pc as usize)..program.len()].copy_from_slice(program);
     }
 }

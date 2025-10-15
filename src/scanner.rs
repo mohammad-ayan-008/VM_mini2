@@ -31,7 +31,9 @@ pub enum TokenType {
     HALT,
     EOF,
     LabelDef,
-    LabelCall
+    LabelCall,
+    Call,
+    Ret
 }
 impl TokenType {
     pub fn get_reg(&self) -> (u32, TokenType) {
@@ -76,9 +78,14 @@ impl<'a> Scanner<'a> {
         map.insert("halt".to_string(), TokenType::HALT);
         map.insert("cmp".to_string(), TokenType::CMP);
         map.insert("jmpg".to_string(), TokenType::JMPG);
+        map.insert("jmpl".to_string(), TokenType::JMPL);
+        map.insert("jmp".to_string(), TokenType::JUMP);
         map.insert("add".to_string(), TokenType::ADD);
         map.insert("print".to_string(), TokenType::Print);
         map.insert("sub".to_string(), TokenType::SUB);
+        map.insert("call".to_string(), TokenType::Call);
+        map.insert("ret".to_string(), TokenType::Ret);
+
 
         Self {
             data: source.chars().peekable(),
@@ -101,8 +108,7 @@ impl<'a> Scanner<'a> {
                 '\n' => {
                     self.line += 1;
                 }
-
-                a if a.is_ascii_whitespace() || a == '\t' => {}
+                a if a.is_ascii_whitespace() || a == '\t'  => {}
                 ',' => {
                     self.push_token(Some(a.to_string()), TokenType::Comma);
                 }
@@ -110,7 +116,7 @@ impl<'a> Scanner<'a> {
                     let mut str = String::new();
                     str.push(a);
                     while let Some(a) = self.data.peek()
-                        && (a.is_ascii_alphanumeric()|| *a == ':')
+                        && (a.is_ascii_alphanumeric()|| *a == ':' || *a == '_')
                     {
                         str.push(self.data.next().unwrap());
                     }
@@ -124,7 +130,7 @@ impl<'a> Scanner<'a> {
                         self.push_token(Some(str), TokenType::LabelCall);
                     }
                 }
-                a if a.is_ascii_digit() || a == '-'=> {
+                a if a.is_ascii_digit() || a == '-' => {
                     let mut dig = String::new();
                     dig.push(a);
                     while let Some(a) = self.data.peek()
