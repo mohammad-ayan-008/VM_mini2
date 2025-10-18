@@ -2,42 +2,100 @@ use std::{collections::HashMap, panic};
 
 use crate::scanner::{Token, TokenType};
 macro_rules! INSERT {
-        ($s:expr,$name:ident) => {
-        let reg =  $s.consume_2(&[R0, R1, R2, R3, R4, R5, R6, R7]);
+    ($s:expr,$name:ident) => {
+        let reg = $s.consume_2(&[R0, R1, R2, R3, R4, R5, R6, R7]);
         $s.consume(Comma);
         let register_or_imm = $s.consume_2(&[R0, R1, R2, R3, R4, R5, R6, R7, INT]);
-        $s.statements.push(Stmt::$name { lhs_reg: reg, right_reg_imm: register_or_imm });
-        }
-    }
+        $s.statements.push(Stmt::$name {
+            lhs_reg: reg,
+            right_reg_imm: register_or_imm,
+        });
+    };
+}
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone)]
 pub enum Stmt {
-    MovLit { from: Token, register_or_imm: Token },
-    Halt { token: Token },
-    CMP { from_reg:Token , register_or_imm:Token},
-    JMPG {to:Token},
-    JMPL {to:Token},
-    JMP {to:Token},
-    Call {to:Token},
+    MovLit {
+        from: Token,
+        register_or_imm: Token,
+    },
+    Halt {
+        token: Token,
+    },
+    CMP {
+        from_reg: Token,
+        register_or_imm: Token,
+    },
+    JMPZ {
+        to: Token,
+    },
+    JMPLE {
+        to: Token,
+    },
+    JMPGE {
+        to: Token,
+    },
+    JMPG {
+        to: Token,
+    },
+    JMPL {
+        to: Token,
+    },
+    JMP {
+        to: Token,
+    },
+    Call {
+        to: Token,
+    },
     RET,
-    ADD { lhs_reg:Token ,right_reg_imm:Token},
-    SUB { lhs_reg:Token ,right_reg_imm:Token},
-    NOP,
-    Print {reg:Token},
+    ADD {
+        lhs_reg: Token,
+        right_reg_imm: Token,
+    },
+    MOD {
+        lhs_reg: Token,
+        right_reg_imm: Token,
+    },
 
+    SUB {
+        lhs_reg: Token,
+        right_reg_imm: Token,
+    },
+    DIV {
+        lhs_reg: Token,
+        right_reg_imm: Token,
+    },
+    MUL {
+        lhs_reg: Token,
+        right_reg_imm: Token,
+    },
+
+    NOP,
+    Print {
+        reg: Token,
+    },
+    PUSH {
+        register_or_imm: Token,
+    },
+    POP {
+        reg: Token,
+    },
+    AND_OR_XOR {
+        type_op: TokenType,
+        reg: Token,
+        register_or_imm: Token,
+    },
 }
 
 pub struct Parser {
     tokens: Vec<Token>,
     statements: Vec<Stmt>,
     current: usize,
-    mapping_table:HashMap<String,usize>
+    mapping_table: HashMap<String, usize>,
 }
 impl Parser {
-    
-
-    pub fn get_table(&self)->&HashMap<String,usize>{
+    pub fn get_table(&self) -> &HashMap<String, usize> {
         &self.mapping_table
     }
     pub fn new(tokens: Vec<Token>) -> Self {
@@ -45,7 +103,7 @@ impl Parser {
             tokens,
             statements: vec![],
             current: 0,
-            mapping_table:HashMap::new()
+            mapping_table: HashMap::new(),
         }
     }
 
@@ -86,70 +144,133 @@ impl Parser {
             self.halt();
         } else if self.match_(&[TokenType::CMP]) {
             self.compare_stmt();
-        }else if self.match_(&[TokenType::JMPG]){
-            self.jump_stmt(); 
-        }else if self.match_(&[TokenType::ADD]){
+        } else if self.match_(&[TokenType::JMPG]) {
+            self.jump_stmt();
+        } else if self.match_(&[TokenType::ADD]) {
             use TokenType::*;
-            INSERT!(self,ADD);
-        }else if self.match_(&[TokenType::SUB]){
+            INSERT!(self, ADD);
+        } else if self.match_(&[TokenType::SUB]) {
             use TokenType::*;
-            INSERT!(self,SUB);
-        }else if self.match_(&[TokenType::Print]){
+            INSERT!(self, SUB);
+        } else if self.match_(&[TokenType::MUL]) {
+            use TokenType::*;
+            INSERT!(self, MUL);
+        } else if self.match_(&[TokenType::DIV]) {
+            use TokenType::*;
+            INSERT!(self, DIV);
+        } else if self.match_(&[TokenType::MOD]) {
+            use TokenType::*;
+            INSERT!(self, MOD);
+        }
+        else if self.match_(&[TokenType::JUMP]) {
+              let token = self.consume_2(&[TokenType::LabelCall]);
+            self.statements.push(Stmt::JMP{ to: token });
+
+        }
+        else if self.match_(&[TokenType::Print]) {
             self.print_st();
-        }else if self.match_(&[TokenType::LabelDef]){
+        } else if self.match_(&[TokenType::LabelDef]) {
             self.label_def();
-        }else if self.match_(&[TokenType::Call]){
+        } else if self.match_(&[TokenType::Call]) {
             self.call();
-        }else if self.match_(&[TokenType::Ret]) {
+        } else if self.match_(&[TokenType::Ret]) {
             self.statements.push(Stmt::RET);
-        }else if self.match_(&[TokenType::JMPL]){
-            self.jump_stmt_2(); 
-        }else {
-            panic!("uknown token {:?}",self.peek());
+        } else if self.match_(&[TokenType::JMPL]) {
+            self.jump_stmt_2();
+        } else if self.match_(&[TokenType::PUSH]) {
+            self.push();
+        } else if self.match_(&[TokenType::POP]) {
+            self.pop();
+        } else if self.match_(&[TokenType::AND, TokenType::OR, TokenType::XOR]) {
+            self.bit_wise();
+        }else if self.match_(&[TokenType::JMPZ]) {
+            let token = self.consume_2(&[TokenType::LabelCall]);
+            self.statements.push(Stmt::JMPZ { to: token });
+        }else if self.match_(&[TokenType::JMPLE]) {
+            let token = self.consume_2(&[TokenType::LabelCall]);
+            self.statements.push(Stmt::JMPLE { to: token });
+        }else if self.match_(&[TokenType::JMPGE]) {
+            let token = self.consume_2(&[TokenType::LabelCall]);
+            self.statements.push(Stmt::JMPGE { to: token });
+        }
+        else {
+            panic!("uknown token {:?}", self.peek());
         }
     }
+    fn bit_wise(&mut self) {
+        use TokenType::*;
+        let type_op = self.previous().token_type;
+        let register = self.consume_2(&[R0, R1, R2, R3, R4, R5, R6, R7]);
+        self.consume(Comma);
+        let register_or_imm = self.consume_2(&[R0, R1, R2, R3, R4, R5, R6, R7, INT]);
+        self.statements.push(Stmt::AND_OR_XOR {
+            type_op,
+            reg: register,
+            register_or_imm,
+        });
+    }
 
-    pub fn call(&mut self){
+    pub fn pop(&mut self) {
+        use TokenType::*;
+        let register_or_imm = self.consume_2(&[R0, R1, R2, R3, R4, R5, R6, R7]);
+        self.statements.push(Stmt::POP {
+            reg: register_or_imm,
+        });
+    }
+    pub fn push(&mut self) {
+        use TokenType::*;
+        let register_or_imm = self.consume_2(&[R0, R1, R2, R3, R4, R5, R6, R7, INT]);
+        self.statements.push(Stmt::PUSH { register_or_imm });
+    }
+
+    pub fn call(&mut self) {
         let int_token = self.consume_2(&[TokenType::LabelCall]);
         self.statements.push(Stmt::Call { to: int_token });
     }
 
-    pub fn label_def(&mut self){
+    pub fn label_def(&mut self) {
         let token = self.previous();
         self.statements.push(Stmt::NOP);
-        let index = self.statements.len() -1;
-        self.mapping_table.insert(token.literal.unwrap(),index);
+        let index = self.statements.len() - 1;
+        self.mapping_table.insert(token.literal.unwrap(), index);
     }
 
-    pub fn print_st(&mut self){
+    pub fn print_st(&mut self) {
         use TokenType::*;
-        let reg =  self.consume_2(&[R0, R1, R2, R3, R4, R5, R6, R7]);
+        let reg = self.consume_2(&[R0, R1, R2, R3, R4, R5, R6, R7]);
         self.statements.push(Stmt::Print { reg });
     }
-    pub fn jump_stmt(&mut self){
+    pub fn jump_stmt(&mut self) {
         let token = self.consume_2(&[TokenType::LabelCall]);
         self.statements.push(Stmt::JMPG { to: token });
     }
-    pub fn jump_stmt_2(&mut self){
+    pub fn jump_stmt_2(&mut self) {
         let token = self.consume_2(&[TokenType::LabelCall]);
         self.statements.push(Stmt::JMPL { to: token });
     }
 
-    pub fn compare_stmt(&mut self){
+    pub fn compare_stmt(&mut self) {
         use TokenType::*;
-        let reg =  self.consume_2(&[R0, R1, R2, R3, R4, R5, R6, R7]);
+        let reg = self.consume_2(&[R0, R1, R2, R3, R4, R5, R6, R7]);
         self.consume(Comma);
         let register_or_imm = self.consume_2(&[R0, R1, R2, R3, R4, R5, R6, R7, INT]);
-        self.statements.push(Stmt::CMP { from_reg: reg, register_or_imm });
+        self.statements.push(Stmt::CMP {
+            from_reg: reg,
+            register_or_imm,
+        });
     }
 
-
     fn consume(&mut self, expected: TokenType) {
-        let prev= self.previous();
+        let prev = self.previous();
         if self.peek().token_type == expected {
             self.current += 1;
         } else {
-            panic!("expeted {:?} at line {} after {:?}", expected ,self.peek().line_number-1,prev.token_type);
+            panic!(
+                "expeted {:?} at line {} after {:?}",
+                expected,
+                self.peek().line_number - 1,
+                prev.token_type
+            );
         }
     }
 

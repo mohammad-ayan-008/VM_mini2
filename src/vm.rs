@@ -4,14 +4,19 @@ const GRETER_FLAG: u8 = 0b0001_0000;
 const LESSER_FLAG: u8 = 0b0010_0000;
 type Flags = u8;
 
-const MEMORY_SIZE: usize = 8 * 1024;
+const CODE_START: usize = 0x0000;
+const DATA_START: usize = 0x2000;
+const BSS_START: usize = 0x3000;
+const HEAP_START: usize = 0x4000;
+const STACK_START: usize = MEMORY_SIZE - 1;
+const STACK_END: usize = HEAP_START;
+const MEMORY_SIZE: usize = 64 * 1024;
 
 pub struct VM {
     flag: Flags,
     pc: u32,
-    sp: u16,
+    sp: usize,
     pub reg: [i32; 8],
-    stack: [i32; 16],
     pub memory: [u8; MEMORY_SIZE],
 }
 impl Default for VM {
@@ -19,9 +24,8 @@ impl Default for VM {
         Self {
             flag: 0,
             pc: 0,
-            sp: 0,
+            sp: STACK_START,
             reg: [0; 8],
-            stack: [0; 16],
             memory: [0; MEMORY_SIZE],
         }
     }
@@ -29,15 +33,17 @@ impl Default for VM {
 
 impl VM {
     pub fn push(&mut self, value: i32) {
-        assert!((self.sp as usize) < self.stack.len(), "stack overflow ");
-        self.stack[self.sp as usize] = value;
-        self.sp += 1;
+        assert!(self.sp >= STACK_END, "stack overflow");
+        self.sp -= 4;
+        self.memory[self.sp..self.sp + 4].copy_from_slice(&value.to_be_bytes());
     }
 
     pub fn pop(&mut self) -> i32 {
-        assert!(self.sp > 0, "stack underflow");
-        self.sp -= 1;
-        self.stack[self.sp as usize]
+        assert!(self.sp < STACK_START, "stack underflow");
+
+        let val: [u8; 4] = self.memory[self.sp..self.sp + 4].try_into().unwrap();
+        self.sp += 4;
+        i32::from_be_bytes(val)
     }
 
     pub fn extract_u32(&mut self) -> u32 {
@@ -53,7 +59,8 @@ impl VM {
         // [opcode (8 bits ) | rest ----]
         // little endian bytes for memory structure MSB at last and LSB first
         'lp: loop {
-            let [inst1, inst2, inst3, inst4] = self.extract_u32().to_be_bytes();
+            let ins = self.extract_u32();
+            let [inst1, inst2, inst3, inst4] = ins.to_be_bytes();
             // println!("{:?}",self.reg);
             //println!("i1 {inst1} i2 {inst2} i3 {inst3} i4 {inst4}");
             let op_code = inst1;
@@ -132,7 +139,6 @@ impl VM {
 
                 //cmp rn rm
                 0x06 => {
-
                     self.flag &= !(ZERO_FLAG | GRETER_FLAG | LESSER_FLAG);
 
                     let n = inst2 as usize;
@@ -154,7 +160,6 @@ impl VM {
                 // JMPG
                 0x07 => {
                     let n = u32::from_be_bytes([0x00, inst2, inst3, inst4]);
-
 
                     if (self.flag & GRETER_FLAG) != 0 {
                         self.pc = n * 4;
@@ -238,13 +243,13 @@ impl VM {
                     let n = inst2 as usize;
                     let m = inst3 as usize;
                     self.reg[n] = self.reg[m];
-                },
+                }
                 //cmp rn imm
                 0x18 => {
                     self.flag &= !(ZERO_FLAG | GRETER_FLAG | LESSER_FLAG);
 
                     let n = inst2 as usize;
-                    let val = i16::from_be_bytes([inst3,inst4]) as i32;
+                    let val = i16::from_be_bytes([inst3, inst4]) as i32;
                     let res = self.reg[n].overflowing_sub(val).0;
 
                     if res == 0 {
@@ -252,28 +257,166 @@ impl VM {
                     }
                     if res > 0 {
                         self.flag |= GRETER_FLAG;
-
                     } else {
                         self.flag |= LESSER_FLAG;
                     }
-                },
+                }
                 //call addr
-                0x19=>{
-                    let addr = u32::from_be_bytes([0x00,inst2,inst3,inst4]);
+                0x19 => {
+                    let addr = u32::from_be_bytes([0x00, inst2, inst3, inst4]);
                     self.push(self.pc as i32);
                     self.pc = addr * 4;
-                },
+                }
                 //ret
-                0x20=>{
+                0x20 => {
                     self.pc = self.pop() as u32;
                 }
+                //Push imm
+                0x21 => {
+                    let sign = if inst2 & 0x80 != 0 { 0xFF } else { 0x00 };
+                    let val = i32::from_be_bytes([sign, inst2, inst3, inst4]);
+                    self.push(val);
+                }
+                //pop
+                0x22 => {
+                    let reg = inst2 as usize;
+                    self.reg[reg] = self.pop();
+                }
+                //Push reg
+                0x23 => {
+                    let reg = inst2 as usize;
+                    self.push(self.reg[reg]);
+                }
+                //AND rn , rm
+                0x24 => {
+                    let n = inst2 as usize;
+                    let m = inst3 as usize;
+                    self.flag &= !ZERO_FLAG;
+                    self.reg[n] &= self.reg[m];
+                    if self.reg[n] == 0 {
+                        self.flag |= ZERO_FLAG;
+                    }
+                }
+                //AND rn , imm
+                0x25 => {
+                    let n = inst2 as usize;
+                    let imm = i16::from_be_bytes([inst3, inst4]) as i32;
+                    self.flag &= !ZERO_FLAG;
+                    self.reg[n] &= imm;
+                    if self.reg[n] == 0 {
+                        self.flag |= ZERO_FLAG;
+                    }
+                }
+                //OR rn , rm
+                0x26 => {
+                    let n = inst2 as usize;
+                    let m = inst3 as usize;
+                    self.flag &= !ZERO_FLAG;
+                    self.reg[n] |= self.reg[m];
+                    if self.reg[n] == 0 {
+                        self.flag |= ZERO_FLAG;
+                    }
+                }
+                //OR rn , imm
+                0x27 => {
+                    let n = inst2 as usize;
+                    let imm = i16::from_be_bytes([inst3, inst4]) as i32;
+                    self.flag &= !ZERO_FLAG;
+                    self.reg[n] |= imm;
+                    if self.reg[n] == 0 {
+                        self.flag |= ZERO_FLAG;
+                    }
+                }
+                //XOR rn , rm
+                0x28 => {
+                    let n = inst2 as usize;
+                    let m = inst3 as usize;
+                    self.flag &= !ZERO_FLAG;
+                    self.reg[n] ^= self.reg[m];
+                    if self.reg[n] == 0 {
+                        self.flag |= ZERO_FLAG;
+                    }
+                }
+                //XOR rn , imm
+                0x29 => {
+                    let n = inst2 as usize;
+                    let imm = i16::from_be_bytes([inst3, inst4]) as i32;
+                    self.flag &= !ZERO_FLAG;
+                    self.reg[n] ^= imm;
+                    if self.reg[n] == 0 {
+                        self.flag |= ZERO_FLAG;
+                    }
+                }
+                //NOT rn
+                0x30 => {
+                    let n = inst2 as usize;
+                    self.flag &= !ZERO_FLAG;
+                    self.reg[n] = !self.reg[n];
+                    if self.reg[n] == 0 {
+                        self.flag |= ZERO_FLAG;
+                    }
+                },
+                //mul rn, imm 0x12
+                //mul rn,rm
+                0x31 => {
+                    self.flag &= !(CARRY_FLAG | ZERO_FLAG);
+                    let n = inst2 as usize;
+                    let m = inst3 as usize;
+                    let res = self.reg[n].overflowing_mul(self.reg[m]);
+                    self.reg[n] = res.0;
+                    if res.1 {
+                        self.flag |= CARRY_FLAG
+                    }
+                    if res.0 == 0 {
+                        self.flag |= ZERO_FLAG
+                    }
+                }
+                // Div rn ,rm 0x13
+                // Div rn,imm
+                0x32 => {
+                    self.flag &= !ZERO_FLAG;
+                    let n = inst2 as usize;
+                    let val = i16::from_be_bytes([inst3,inst4]) as i32;
+                    if val == 0 {
+                        println!("Divide by zero");
+                        return;
+                    }
+                    self.reg[n] /= val;
+                    if self.reg[n] == 0 {
+                        self.flag |= ZERO_FLAG
+                    }
+                }
+                //mod rn,rm
+                0x33 => {
+                    self.flag &= !(CARRY_FLAG | ZERO_FLAG);
+                    let n = inst2 as usize;
+                    let m = inst3 as usize;
+                    let res = self.reg[n] % (self.reg[m]);
+                    self.reg[n] = res;
+                    if res == 0 {
+                        self.flag |= ZERO_FLAG
+                    }
+                }
+                //mod rn,imm
+                0x34 => {
+                    self.flag &= !ZERO_FLAG;
+                    let n = inst2 as usize;
+                    let val = i16::from_be_bytes([inst3,inst4]) as i32;
+                    self.reg[n] %= val;
+                    if self.reg[n] == 0 {
+                        self.flag |= ZERO_FLAG
+                    }
+                }
+
                 _ => todo!(),
             }
         }
     }
 
     pub fn copy(&mut self, program: &[u8]) {
-      
-        self.memory[(self.pc as usize)..program.len()].copy_from_slice(program);
+        let start = CODE_START;
+        let end = program.len() + start;
+        assert!(end < DATA_START, "program is too large");
+        self.memory[start..program.len()].copy_from_slice(program);
     }
 }

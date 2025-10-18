@@ -1,6 +1,5 @@
 use std::{collections::HashMap, iter::Peekable, str::Chars};
 
-
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TokenType {
@@ -27,13 +26,20 @@ pub enum TokenType {
     JMPNZ,
     JUMP,
     INT,
+    PUSH,
+    POP,
     Comma,
     HALT,
     EOF,
     LabelDef,
     LabelCall,
     Call,
-    Ret
+    AND,
+    OR,
+    XOR,
+    NOT,
+    Ret,
+    MOD
 }
 impl TokenType {
     pub fn get_reg(&self) -> (u32, TokenType) {
@@ -78,6 +84,9 @@ impl<'a> Scanner<'a> {
         map.insert("halt".to_string(), TokenType::HALT);
         map.insert("cmp".to_string(), TokenType::CMP);
         map.insert("jmpg".to_string(), TokenType::JMPG);
+        map.insert("jmpz".to_string(), TokenType::JMPZ);
+        map.insert("jmple".to_string(), TokenType::JMPLE);
+        map.insert("jmpge".to_string(), TokenType::JMPGE);
         map.insert("jmpl".to_string(), TokenType::JMPL);
         map.insert("jmp".to_string(), TokenType::JUMP);
         map.insert("add".to_string(), TokenType::ADD);
@@ -85,8 +94,14 @@ impl<'a> Scanner<'a> {
         map.insert("sub".to_string(), TokenType::SUB);
         map.insert("call".to_string(), TokenType::Call);
         map.insert("ret".to_string(), TokenType::Ret);
-
-
+        map.insert("push".to_string(), TokenType::PUSH);
+        map.insert("pop".to_string(), TokenType::POP);
+        map.insert("and".to_string(), TokenType::AND);
+        map.insert("or".to_string(), TokenType::OR);
+        map.insert("xor".to_string(), TokenType::XOR);
+        map.insert("div".to_string(), TokenType::DIV);
+        map.insert("mul".to_string(), TokenType::MUL);
+        map.insert("mod".to_string(), TokenType::MOD);
         Self {
             data: source.chars().peekable(),
             tokens: vec![],
@@ -108,7 +123,7 @@ impl<'a> Scanner<'a> {
                 '\n' => {
                     self.line += 1;
                 }
-                a if a.is_ascii_whitespace() || a == '\t'  => {}
+                a if a.is_ascii_whitespace() || a == '\t' => {}
                 ',' => {
                     self.push_token(Some(a.to_string()), TokenType::Comma);
                 }
@@ -116,17 +131,17 @@ impl<'a> Scanner<'a> {
                     let mut str = String::new();
                     str.push(a);
                     while let Some(a) = self.data.peek()
-                        && (a.is_ascii_alphanumeric()|| *a == ':' || *a == '_')
+                        && (a.is_ascii_alphanumeric() || *a == ':' || *a == '_')
                     {
                         str.push(self.data.next().unwrap());
                     }
                     str = str.trim().to_string();
                     if let Some(a) = self.keywords.get(&str.to_lowercase()) {
                         self.push_token(None, *a);
-                    } else if str.contains(":"){
+                    } else if str.contains(":") {
                         let str = str.replace(":", "").to_string();
                         self.push_token(Some(str), TokenType::LabelDef);
-                    }else  {
+                    } else {
                         self.push_token(Some(str), TokenType::LabelCall);
                     }
                 }
