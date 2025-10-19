@@ -1,6 +1,6 @@
 ---
 
-# 🧠 Tiny Virtual Machine — Assembly-Like Language in Rust
+# Tiny Virtual Machine — Assembly-Like Language in Rust
 
 This project is a minimal **virtual machine** built from scratch in Rust.
 It executes a custom **assembly-like instruction set**, supporting arithmetic, control flow, comparison, and basic I/O — all designed to simulate how a CPU fetches, decodes, and executes instructions.
