@@ -32,14 +32,19 @@ pub enum TokenType {
     HALT,
     EOF,
     LabelDef,
-    LabelCall,
+    IDENT,
     Call,
     AND,
     OR,
     XOR,
     NOT,
     Ret,
-    MOD
+    MOD,
+    DATA,
+    CODE,
+    DW,
+    DB,
+    DD,
 }
 impl TokenType {
     pub fn get_reg(&self) -> (u32, TokenType) {
@@ -102,6 +107,12 @@ impl<'a> Scanner<'a> {
         map.insert("div".to_string(), TokenType::DIV);
         map.insert("mul".to_string(), TokenType::MUL);
         map.insert("mod".to_string(), TokenType::MOD);
+        map.insert(".data".to_string(), TokenType::DATA);
+        map.insert(".code".to_string(), TokenType::CODE);
+        map.insert("dd".to_string(), TokenType::DD);
+        map.insert("dw".to_string(), TokenType::DW);
+        map.insert("db".to_string(), TokenType::DB);
+
         Self {
             data: source.chars().peekable(),
             tokens: vec![],
@@ -123,11 +134,22 @@ impl<'a> Scanner<'a> {
                 '\n' => {
                     self.line += 1;
                 }
+
+                ';' => {
+                    // Skip until newline or EOF
+                    while let Some(&next) = self.data.peek() {
+                        if next == '\n' {
+                            break;
+                        }
+                        self.data.next();
+                    }
+                    continue; // Skip comment entirely
+                }
                 a if a.is_ascii_whitespace() || a == '\t' => {}
                 ',' => {
                     self.push_token(Some(a.to_string()), TokenType::Comma);
                 }
-                a if a.is_ascii_alphabetic() => {
+                a if a.is_ascii_alphabetic() || a == '.' => {
                     let mut str = String::new();
                     str.push(a);
                     while let Some(a) = self.data.peek()
@@ -142,7 +164,7 @@ impl<'a> Scanner<'a> {
                         let str = str.replace(":", "").to_string();
                         self.push_token(Some(str), TokenType::LabelDef);
                     } else {
-                        self.push_token(Some(str), TokenType::LabelCall);
+                        self.push_token(Some(str), TokenType::IDENT);
                     }
                 }
                 a if a.is_ascii_digit() || a == '-' => {

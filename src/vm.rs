@@ -1,3 +1,5 @@
+use crate::parser::Data;
+
 const CARRY_FLAG: u8 = 0b0000_0010;
 const ZERO_FLAG: u8 = 0b0000_0001;
 const GRETER_FLAG: u8 = 0b0001_0000;
@@ -23,7 +25,7 @@ impl Default for VM {
     fn default() -> Self {
         Self {
             flag: 0,
-            pc: 0,
+            pc: CODE_START as u32,
             sp: STACK_START,
             reg: [0; 8],
             memory: [0; MEMORY_SIZE],
@@ -47,6 +49,7 @@ impl VM {
     }
 
     pub fn extract_u32(&mut self) -> u32 {
+        assert!(self.pc + 3 < DATA_START as u32, "PC out of bounds");
         let lsb0 = self.memory[self.pc as usize];
         let lsb1 = self.memory[(self.pc + 1) as usize];
         let lsb2 = self.memory[(self.pc + 2) as usize];
@@ -355,7 +358,7 @@ impl VM {
                     if self.reg[n] == 0 {
                         self.flag |= ZERO_FLAG;
                     }
-                },
+                }
                 //mul rn, imm 0x12
                 //mul rn,rm
                 0x31 => {
@@ -376,7 +379,7 @@ impl VM {
                 0x32 => {
                     self.flag &= !ZERO_FLAG;
                     let n = inst2 as usize;
-                    let val = i16::from_be_bytes([inst3,inst4]) as i32;
+                    let val = i16::from_be_bytes([inst3, inst4]) as i32;
                     if val == 0 {
                         println!("Divide by zero");
                         return;
@@ -401,10 +404,43 @@ impl VM {
                 0x34 => {
                     self.flag &= !ZERO_FLAG;
                     let n = inst2 as usize;
-                    let val = i16::from_be_bytes([inst3,inst4]) as i32;
+                    let val = i16::from_be_bytes([inst3, inst4]) as i32;
                     self.reg[n] %= val;
                     if self.reg[n] == 0 {
                         self.flag |= ZERO_FLAG
+                    }
+                }
+                //mov rn , [addr] // value of u8
+                0x35 => {
+                    let reg = inst2 as usize;
+                    let offset = DATA_START + u16::from_be_bytes([inst3, inst4]) as usize;
+                    assert!(
+                        (DATA_START..BSS_START).contains(&offset),
+                        "seg fault {:?}",
+                        offset
+                    );
+                    self.reg[reg] = self.memory[offset] as i8 as i16 as i32;
+                },
+                 //cmp rn addr // value u8
+                0x36 => {
+                    self.flag &= !(ZERO_FLAG | GRETER_FLAG | LESSER_FLAG);
+                    let offset = DATA_START + u16::from_be_bytes([inst3, inst4]) as usize;
+                    assert!(
+                    (DATA_START..BSS_START).contains(&offset),
+                        "seg fault {:?}",
+                        offset
+                    );
+                    let n = inst2 as usize;
+                    let val = self.memory[offset] as i8 as i16 as i32;
+                    let res = self.reg[n].overflowing_sub(val).0;
+
+                    if res == 0 {
+                        self.flag |= ZERO_FLAG;
+                    }
+                    if res > 0 {
+                        self.flag |= GRETER_FLAG;
+                    } else {
+                        self.flag |= LESSER_FLAG;
                     }
                 }
 
@@ -413,10 +449,16 @@ impl VM {
         }
     }
 
-    pub fn copy(&mut self, program: &[u8]) {
+    pub fn copy(&mut self, program: &[u8], data: &[u8]) {
         let start = CODE_START;
         let end = program.len() + start;
         assert!(end < DATA_START, "program is too large");
         self.memory[start..program.len()].copy_from_slice(program);
+
+        let start = DATA_START;
+        let end = start + data.len();
+        assert!(end <= self.memory.len(), "data too big for memory");
+        assert!(end < BSS_START, "seg fault");
+        self.memory[start..end].copy_from_slice(data);
     }
 }

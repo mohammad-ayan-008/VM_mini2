@@ -18,7 +18,7 @@ macro_rules! INSERT {
 pub enum Stmt {
     MovLit {
         from: Token,
-        register_or_imm: Token,
+        register_or_imm_IDENT: Token,
     },
     Halt {
         token: Token,
@@ -87,10 +87,16 @@ pub enum Stmt {
         register_or_imm: Token,
     },
 }
-
+#[derive(Clone)]
+pub enum Data {
+    DB(i8, Token),
+    DW(i16, Token),
+    DD(i32, Token),
+}
 pub struct Parser {
     tokens: Vec<Token>,
     statements: Vec<Stmt>,
+    data: Vec<Data>,
     current: usize,
     mapping_table: HashMap<String, usize>,
 }
@@ -102,6 +108,7 @@ impl Parser {
         Self {
             tokens,
             statements: vec![],
+            data: vec![],
             current: 0,
             mapping_table: HashMap::new(),
         }
@@ -122,12 +129,40 @@ impl Parser {
         self.peek().token_type == TokenType::EOF
     }
 
-    pub fn parse(&mut self) -> &[Stmt] {
-        while !self.is_end() {
+    pub fn parse(&mut self) -> (&[Stmt], &[Data]) {
+        if self.match_(&[TokenType::DATA]) {
+            self.data();
+        }
+        if self.match_(&[TokenType::CODE]) {
             self.statements();
         }
-        &self.statements
+
+        (&self.statements, &self.data)
     }
+    pub fn data(&mut self) {
+        while !self.is_end() {
+            if self.peek().token_type == TokenType::CODE {
+                return;
+            }
+            let token = self.peek().token_type;
+            if token == TokenType::DB {
+                self.advance();
+                self.db();
+            }
+        }
+    }
+
+    pub fn db(&mut self) {
+        let ident = self.consume_2(&[TokenType::IDENT]);
+        let num = self
+            .consume_2(&[TokenType::INT])
+            .literal
+            .unwrap()
+            .parse::<i8>()
+            .unwrap();
+        self.data.push(Data::DB(num, ident));
+    }
+
     pub fn match_(&mut self, token: &[TokenType]) -> bool {
         for i in token {
             if self.peek().token_type == *i {
@@ -138,63 +173,61 @@ impl Parser {
         false
     }
     pub fn statements(&mut self) {
-        if self.match_(&[TokenType::MOV]) {
-            self.mov_statement();
-        } else if self.match_(&[TokenType::HALT]) {
-            self.halt();
-        } else if self.match_(&[TokenType::CMP]) {
-            self.compare_stmt();
-        } else if self.match_(&[TokenType::JMPG]) {
-            self.jump_stmt();
-        } else if self.match_(&[TokenType::ADD]) {
-            use TokenType::*;
-            INSERT!(self, ADD);
-        } else if self.match_(&[TokenType::SUB]) {
-            use TokenType::*;
-            INSERT!(self, SUB);
-        } else if self.match_(&[TokenType::MUL]) {
-            use TokenType::*;
-            INSERT!(self, MUL);
-        } else if self.match_(&[TokenType::DIV]) {
-            use TokenType::*;
-            INSERT!(self, DIV);
-        } else if self.match_(&[TokenType::MOD]) {
-            use TokenType::*;
-            INSERT!(self, MOD);
-        }
-        else if self.match_(&[TokenType::JUMP]) {
-              let token = self.consume_2(&[TokenType::LabelCall]);
-            self.statements.push(Stmt::JMP{ to: token });
-
-        }
-        else if self.match_(&[TokenType::Print]) {
-            self.print_st();
-        } else if self.match_(&[TokenType::LabelDef]) {
-            self.label_def();
-        } else if self.match_(&[TokenType::Call]) {
-            self.call();
-        } else if self.match_(&[TokenType::Ret]) {
-            self.statements.push(Stmt::RET);
-        } else if self.match_(&[TokenType::JMPL]) {
-            self.jump_stmt_2();
-        } else if self.match_(&[TokenType::PUSH]) {
-            self.push();
-        } else if self.match_(&[TokenType::POP]) {
-            self.pop();
-        } else if self.match_(&[TokenType::AND, TokenType::OR, TokenType::XOR]) {
-            self.bit_wise();
-        }else if self.match_(&[TokenType::JMPZ]) {
-            let token = self.consume_2(&[TokenType::LabelCall]);
-            self.statements.push(Stmt::JMPZ { to: token });
-        }else if self.match_(&[TokenType::JMPLE]) {
-            let token = self.consume_2(&[TokenType::LabelCall]);
-            self.statements.push(Stmt::JMPLE { to: token });
-        }else if self.match_(&[TokenType::JMPGE]) {
-            let token = self.consume_2(&[TokenType::LabelCall]);
-            self.statements.push(Stmt::JMPGE { to: token });
-        }
-        else {
-            panic!("uknown token {:?}", self.peek());
+        while !self.is_end() {
+            if self.match_(&[TokenType::MOV]) {
+                self.mov_statement();
+            } else if self.match_(&[TokenType::HALT]) {
+                self.halt();
+            } else if self.match_(&[TokenType::CMP]) {
+                self.compare_stmt();
+            } else if self.match_(&[TokenType::JMPG]) {
+                self.jump_stmt();
+            } else if self.match_(&[TokenType::ADD]) {
+                use TokenType::*;
+                INSERT!(self, ADD);
+            } else if self.match_(&[TokenType::SUB]) {
+                use TokenType::*;
+                INSERT!(self, SUB);
+            } else if self.match_(&[TokenType::MUL]) {
+                use TokenType::*;
+                INSERT!(self, MUL);
+            } else if self.match_(&[TokenType::DIV]) {
+                use TokenType::*;
+                INSERT!(self, DIV);
+            } else if self.match_(&[TokenType::MOD]) {
+                use TokenType::*;
+                INSERT!(self, MOD);
+            } else if self.match_(&[TokenType::JUMP]) {
+                let token = self.consume_2(&[TokenType::IDENT]);
+                self.statements.push(Stmt::JMP { to: token });
+            } else if self.match_(&[TokenType::Print]) {
+                self.print_st();
+            } else if self.match_(&[TokenType::LabelDef]) {
+                self.label_def();
+            } else if self.match_(&[TokenType::Call]) {
+                self.call();
+            } else if self.match_(&[TokenType::Ret]) {
+                self.statements.push(Stmt::RET);
+            } else if self.match_(&[TokenType::JMPL]) {
+                self.jump_stmt_2();
+            } else if self.match_(&[TokenType::PUSH]) {
+                self.push();
+            } else if self.match_(&[TokenType::POP]) {
+                self.pop();
+            } else if self.match_(&[TokenType::AND, TokenType::OR, TokenType::XOR]) {
+                self.bit_wise();
+            } else if self.match_(&[TokenType::JMPZ]) {
+                let token = self.consume_2(&[TokenType::IDENT]);
+                self.statements.push(Stmt::JMPZ { to: token });
+            } else if self.match_(&[TokenType::JMPLE]) {
+                let token = self.consume_2(&[TokenType::IDENT]);
+                self.statements.push(Stmt::JMPLE { to: token });
+            } else if self.match_(&[TokenType::JMPGE]) {
+                let token = self.consume_2(&[TokenType::IDENT]);
+                self.statements.push(Stmt::JMPGE { to: token });
+            } else {
+                panic!("uknown token {:?}", self.peek());
+            }
         }
     }
     fn bit_wise(&mut self) {
@@ -224,7 +257,7 @@ impl Parser {
     }
 
     pub fn call(&mut self) {
-        let int_token = self.consume_2(&[TokenType::LabelCall]);
+        let int_token = self.consume_2(&[TokenType::IDENT]);
         self.statements.push(Stmt::Call { to: int_token });
     }
 
@@ -241,11 +274,11 @@ impl Parser {
         self.statements.push(Stmt::Print { reg });
     }
     pub fn jump_stmt(&mut self) {
-        let token = self.consume_2(&[TokenType::LabelCall]);
+        let token = self.consume_2(&[TokenType::IDENT]);
         self.statements.push(Stmt::JMPG { to: token });
     }
     pub fn jump_stmt_2(&mut self) {
-        let token = self.consume_2(&[TokenType::LabelCall]);
+        let token = self.consume_2(&[TokenType::IDENT]);
         self.statements.push(Stmt::JMPL { to: token });
     }
 
@@ -253,7 +286,7 @@ impl Parser {
         use TokenType::*;
         let reg = self.consume_2(&[R0, R1, R2, R3, R4, R5, R6, R7]);
         self.consume(Comma);
-        let register_or_imm = self.consume_2(&[R0, R1, R2, R3, R4, R5, R6, R7, INT]);
+        let register_or_imm = self.consume_2(&[R0, R1, R2, R3, R4, R5, R6, R7, INT,IDENT]);
         self.statements.push(Stmt::CMP {
             from_reg: reg,
             register_or_imm,
@@ -297,10 +330,10 @@ impl Parser {
         use TokenType::*;
         let register = self.consume_2(&[R0, R1, R2, R3, R4, R5, R6, R7]);
         self.consume(Comma);
-        let register_or_imm = self.consume_2(&[R0, R1, R2, R3, R4, R5, R6, R7, INT]);
+        let register_or_imm_IDENT = self.consume_2(&[R0, R1, R2, R3, R4, R5, R6, R7, INT, IDENT]);
         self.statements.push(Stmt::MovLit {
             from: register,
-            register_or_imm,
+            register_or_imm_IDENT,
         });
     }
 }

@@ -35,8 +35,7 @@ fn main() {
         0x00, 0x00, 0x00, 0xFF, // HALT
     ];
 
-    vm.copy(code);
-
+    vm.copy(code.0, code.1);
     vm.execute();
     println!("<<reg -> {:?}>>", vm.reg);
 }

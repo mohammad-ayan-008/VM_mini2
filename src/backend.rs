@@ -1,7 +1,7 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, hash::Hash, rc::Rc};
 
 use crate::{
-    parser::{Parser, Stmt},
+    parser::{Data, Parser, Stmt},
     scanner::{Token, TokenType},
 };
 const I24_MIN: i32 = -8_388_608;
@@ -9,8 +9,11 @@ const I24_MAX: i32 = 8_388_607;
 
 pub struct CodeGen {
     code: Vec<u8>,
-    statements: Rc <Vec<Stmt>>,
+    data_code: Vec<u8>,
+    statements: Rc<Vec<Stmt>>,
+    data: Rc<Vec<Data>>,
     table: HashMap<String, usize>,
+    data_tabel: HashMap<String, u16>,
 }
 impl CodeGen {
     pub fn new(mut parser: Parser) -> Self {
@@ -18,11 +21,14 @@ impl CodeGen {
 
         Self {
             code: vec![],
-            statements: Rc::new(code.to_vec()),
+            statements: Rc::new(code.0.to_vec()),
+            data: Rc::new(code.1.to_vec()),
+            data_code: vec![],
+            data_tabel: HashMap::new(),
             table: parser.get_table().clone(),
         }
     }
-    pub fn helper_reg(&mut self,op1:u8,op2:u8, lhs_reg: &Token, right_reg_imm: &Token) {
+    pub fn helper_reg(&mut self, op1: u8, op2: u8, lhs_reg: &Token, right_reg_imm: &Token) {
         let reg = lhs_reg.token_type.get_reg();
         let mut command: [u8; 4] = [0; 4];
         if right_reg_imm.token_type != TokenType::INT {
@@ -47,13 +53,22 @@ impl CodeGen {
         }
         self.code.extend_from_slice(&command);
     }
-    pub fn gen_(&mut self) -> &[u8] {
-
-        for i in self.statements
-            .clone()
-            .iter(){
+    pub fn gen_(&mut self) -> (&[u8], &[u8]) {
+        let mut offset = 0;
+        for i in self.data.clone().iter() {
             match i {
-                Stmt::MOD{
+                Data::DB(a, b) => {
+                    let name = b.literal.as_ref().unwrap();
+                    self.data_code.push(*a as u8);
+                    self.data_tabel.insert(name.clone(), offset);
+                    offset += 1;
+                }
+                _ => panic!("not defined"),
+            }
+        }
+        for i in self.statements.clone().iter() {
+            match i {
+                Stmt::MOD {
                     lhs_reg,
                     right_reg_imm,
                 } => {
@@ -80,8 +95,8 @@ impl CodeGen {
                         command[0] = low;
                     }
                     self.code.extend_from_slice(&command);
-                }, 
-                Stmt::DIV{
+                }
+                Stmt::DIV {
                     lhs_reg,
                     right_reg_imm,
                 } => {
@@ -108,8 +123,8 @@ impl CodeGen {
                         command[0] = low;
                     }
                     self.code.extend_from_slice(&command);
-                },
-                Stmt::MUL{
+                }
+                Stmt::MUL {
                     lhs_reg,
                     right_reg_imm,
                 } => {
@@ -136,21 +151,21 @@ impl CodeGen {
                         command[0] = low;
                     }
                     self.code.extend_from_slice(&command);
-                },
+                }
                 Stmt::AND_OR_XOR {
                     type_op,
                     reg,
                     register_or_imm,
                 } => {
-                    if *type_op == TokenType::AND{
+                    if *type_op == TokenType::AND {
                         self.helper_reg(0x24, 0x25, reg, register_or_imm);
-                    }else if *type_op == TokenType::OR {
+                    } else if *type_op == TokenType::OR {
                         self.helper_reg(0x26, 0x27, reg, register_or_imm);
-                    }else if *type_op == TokenType::XOR {
+                    } else if *type_op == TokenType::XOR {
                         self.helper_reg(0x28, 0x29, reg, register_or_imm);
                     }
-                },
-                Stmt::JMPLE{ to }=>{
+                }
+                Stmt::JMPLE { to } => {
                     let val = to.literal.as_ref().unwrap();
                     let val = (*self.table.get(val).unwrap()) as u32;
                     let mut command: [u8; 4] = [0; 4];
@@ -160,9 +175,8 @@ impl CodeGen {
                     command[1] = u3;
                     command[0] = u4;
                     self.code.extend_from_slice(&command);
-
-                },
-                Stmt::JMPGE{ to }=>{
+                }
+                Stmt::JMPGE { to } => {
                     let val = to.literal.as_ref().unwrap();
                     let val = (*self.table.get(val).unwrap()) as u32;
                     let mut command: [u8; 4] = [0; 4];
@@ -172,9 +186,8 @@ impl CodeGen {
                     command[1] = u3;
                     command[0] = u4;
                     self.code.extend_from_slice(&command);
-
-                },
-                Stmt::JMPZ { to }=>{
+                }
+                Stmt::JMPZ { to } => {
                     let val = to.literal.as_ref().unwrap();
                     let val = (*self.table.get(val).unwrap()) as u32;
                     let mut command: [u8; 4] = [0; 4];
@@ -184,8 +197,7 @@ impl CodeGen {
                     command[1] = u3;
                     command[0] = u4;
                     self.code.extend_from_slice(&command);
-
-                },
+                }
                 Stmt::PUSH { register_or_imm } => {
                     let mut command: [u8; 4] = [0; 4];
                     if register_or_imm.token_type != TokenType::INT {
@@ -230,7 +242,7 @@ impl CodeGen {
                     self.code.extend_from_slice(&command);
                 }
                 Stmt::Call { to } => {
-                    if to.token_type == TokenType::LabelCall {
+                    if to.token_type == TokenType::IDENT {
                         let addr = (*self.table.get(to.literal.as_ref().unwrap()).unwrap()) as u32;
                         let mut command: [u8; 4] = [0; 4];
                         let [_, u1, u2, u3] = addr.to_be_bytes();
@@ -323,12 +335,22 @@ impl CodeGen {
                 } => {
                     let reg = from_reg.token_type.get_reg();
                     let mut command: [u8; 4] = [0; 4];
-                    if register_or_imm.token_type != TokenType::INT {
+                    if [
+                        TokenType::R0,
+                        TokenType::R1,
+                        TokenType::R2,
+                        TokenType::R3,
+                        TokenType::R4,
+                        TokenType::R5,
+                        TokenType::R6,
+                        TokenType::R7,
+                    ]
+                    .contains(&register_or_imm.token_type){
                         let reg_2 = register_or_imm.token_type.get_reg();
                         command[3] = 0x06;
                         command[2] = reg.0 as u8;
                         command[1] = reg_2.0 as u8;
-                    } else {
+                    } else if register_or_imm.token_type == TokenType::INT{
                         let reg_2 = register_or_imm
                             .literal
                             .as_ref()
@@ -342,6 +364,17 @@ impl CodeGen {
                         command[2] = reg.0 as u8;
                         command[1] = high;
                         command[0] = low;
+                    }else if register_or_imm.token_type == TokenType::IDENT {
+                        let offset = self
+                            .data_tabel
+                            .get(register_or_imm.literal.as_ref().unwrap())
+                            .unwrap();
+                        let [high, low] = offset.to_be_bytes();
+                        command[3] = 0x36;
+                        command[2] = reg.0 as u8;
+                        command[1] = high;
+                        command[0] = low;
+
                     }
                     self.code.extend_from_slice(&command);
                 }
@@ -370,21 +403,32 @@ impl CodeGen {
 
                 Stmt::MovLit {
                     from,
-                    register_or_imm,
+                    register_or_imm_IDENT,
                 } => {
                     // 0x01 mov r1,10
                     // 0x17 mov r2, r1
                     let mut command: [u8; 4] = [0; 4];
                     let reg = from.token_type.get_reg();
-                    if register_or_imm.token_type != TokenType::INT {
+                    if [
+                        TokenType::R0,
+                        TokenType::R1,
+                        TokenType::R2,
+                        TokenType::R3,
+                        TokenType::R4,
+                        TokenType::R5,
+                        TokenType::R6,
+                        TokenType::R7,
+                    ]
+                    .contains(&register_or_imm_IDENT.token_type)
+                    {
                         // 0x17 0xn 0xm 0x00
-                        let to = register_or_imm.token_type.get_reg();
+                        let to = register_or_imm_IDENT.token_type.get_reg();
                         command[3] = 0x17;
                         command[2] = reg.0 as u8;
                         command[1] = to.0 as u8;
                         command[0] = 0x00;
-                    } else {
-                        let num = register_or_imm
+                    } else if register_or_imm_IDENT.token_type == TokenType::INT {
+                        let num = register_or_imm_IDENT
                             .literal
                             .as_ref()
                             .unwrap()
@@ -392,6 +436,16 @@ impl CodeGen {
                             .expect("number parsing error");
                         let [high, low] = num.to_be_bytes();
                         command[3] = 0x01;
+                        command[2] = reg.0 as u8;
+                        command[1] = high;
+                        command[0] = low;
+                    } else if register_or_imm_IDENT.token_type == TokenType::IDENT {
+                        let offset = self
+                            .data_tabel
+                            .get(register_or_imm_IDENT.literal.as_ref().unwrap())
+                            .unwrap();
+                        let [high, low] = offset.to_be_bytes();
+                        command[3] = 0x35;
                         command[2] = reg.0 as u8;
                         command[1] = high;
                         command[0] = low;
@@ -403,6 +457,6 @@ impl CodeGen {
                 }
             }
         }
-        &self.code
+        (&self.code, &self.data_code)
     }
 }
